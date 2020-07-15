@@ -131,3 +131,4 @@ dmypy.json
 # custom stuff
 .vscode/
 .vscode/settings.json
+lightning_logs/

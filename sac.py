@@ -119,7 +119,7 @@ class MLPActorCritic(nn.Module):
         activation=nn.ReLU,
         **kwargs
     ):
-        super(MLPActorCritic, self).__init__()
+        super().__init__()
         obs_dim = observation_space.shape[0]
         act_dim = action_space.shape[0]
         act_limit = action_space.high[0]
@@ -132,6 +132,7 @@ class MLPActorCritic(nn.Module):
         self.q2 = MLPQFunction(obs_dim, act_dim, hidden_sizes, activation)
 
     def act(self, obs, deterministic=False):
+        obs = obs.float()
         with torch.no_grad():
             a, _ = self.pi(obs, deterministic, False)
             return a.numpy()
@@ -186,9 +187,9 @@ class ReplayBuffer:
         self.ptr, self.size, self.max_size = 0, 0, size
 
     def store(self, obs, act, rew, next_obs, done):
-        self.obs_buf[self.ptr] = obs
-        self.obs2_buf[self.ptr] = next_obs
-        self.act_buf[self.ptr] = act
+        self.obs_buf[self.ptr] = obs.flatten()
+        self.obs2_buf[self.ptr] = next_obs.flatten()
+        self.act_buf[self.ptr] = act.flatten()
         self.rew_buf[self.ptr] = rew
         self.done_buf[self.ptr] = done
         self.ptr = (self.ptr + 1) % self.max_size
@@ -221,11 +222,13 @@ class RLDataset(IterableDataset):
 
     def __iter__(self) -> Tuple:
         # states, actions, rewards, dones, new_states = self.buffer.sample(self.sample_size)
-        states, actions, rewards, dones, new_states = self.buffer.sample_batch(
-            self.sample_size
-        )
-        for i in range(len(dones)):
-            yield states[i], actions[i], rewards[i], dones[i], new_states[i]
+        # states, actions, rewards, dones, new_states = self.buffer.sample_batch(
+        #     self.sample_size
+        # )
+        # for i in range(len(dones)):
+        #     yield states[i], actions[i], rewards[i], dones[i], new_states[i]
+        data = self.buffer.sample_batch(self.sample_size)
+        yield data["obs"], data["act"], data["rew"], data["done"], data["obs2"]
 
 
 class Agent:
@@ -333,6 +336,7 @@ class SACLightning(pl.LightningModule):
         save_freq=1,
         **kwargs
     ) -> None:
+        super().__init__()
         self.env = env  # okay so do we want this?
         # self.actor_critic = actor_critic
         self.ac_kwargs = ac_kwargs
@@ -440,7 +444,7 @@ class SACLightning(pl.LightningModule):
         """
         Set up function for computing SAC pi loss
         """
-        o = data["obs"]
+        o = data[0]
         pi, logp_pi = self.ac.pi(o)
         q1_pi = self.ac.q1(o, pi)
         q2_pi = self.ac.q2(o, pi)
@@ -454,7 +458,7 @@ class SACLightning(pl.LightningModule):
 
         return loss_pi, pi_info
 
-    def training_step(self, data, nb_batch):
+    def training_step(self, data, nb_batch, optimizer_idx):
         """
         performs a single step through the environment to update the replay buffer
         and calculate the loss based on the minibatch
@@ -462,16 +466,25 @@ class SACLightning(pl.LightningModule):
         device = self.get_device(data)
 
         # step through environment with agent
-        reward, done = self.agent.play_step(self.net, 0, device)
+        reward, done = self.agent.play_step(self.ac, 0, device)
         self.episode_reward += reward
 
+        loss_pi = None
+        loss_q = None
+        pi_info = {}
+        q_info = {}
+
         # calculate loss
-        loss_q, q_info = self.compute_loss_q(data)
-        for p in self.q_params:
-            p.requires_grad = False
-        loss_pi, pi_info = self.compute_loss_pi(data)
-        for p in self.q_params:
-            p.requires_grad = True
+        # loss_q, q_info = self.compute_loss_q(data)
+        # for p in self.q_params:
+        #     p.requires_grad = False
+        # loss_pi, pi_info = self.compute_loss_pi(data)
+        # for p in self.q_params:
+        #     p.requires_grad = True
+        if optimizer_idx == 0:
+            loss_pi, pi_info = self.compute_loss_pi(data)
+        if optimizer_idx == 1:
+            loss_q, q_info = self.compute_loss_q(data)
 
         # Finally, update target networks by polyak averaging.
         with torch.no_grad():
@@ -491,7 +504,7 @@ class SACLightning(pl.LightningModule):
         }
 
         log = {**log, **pi_info, **q_info}
-        return OrderedDict({"loss": loss_q + loss_pi, "log": log, "progress_bar": log})
+        return OrderedDict({"loss": [loss_q, loss_pi], "log": log, "progress_bar": log})
 
     def configure_optimizers(self) -> List[Optimizer]:
         """Initialize Adam optimizer"""
@@ -502,7 +515,7 @@ class SACLightning(pl.LightningModule):
 
     def __dataloader(self) -> DataLoader:
         """Initialize the Replay Buffer dataset used for retrieving experiences"""
-        dataset = RLDataset(self.buffer, self.episode_length)
+        dataset = RLDataset(self.replay_buffer, self.max_ep_len)
         dataloader = DataLoader(
             dataset=dataset, batch_size=self.batch_size, sampler=None,
         )
