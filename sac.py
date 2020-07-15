@@ -61,12 +61,14 @@ LOG_STD_MIN = -20
 class SquashedGaussianMLPActor(nn.Module):
     def __init__(self, obs_dim, act_dim, hidden_sizes, activation, act_limit):
         super(SquashedGaussianMLPActor, self).__init__()
+        self.obs_dim = obs_dim
         self.net = mlp([obs_dim] + list(hidden_sizes), activation, activation)
         self.mu_layer = nn.Linear(hidden_sizes[-1], act_dim)
         self.log_std_layer = nn.Linear(hidden_sizes[-1], act_dim)
         self.act_limit = act_limit
 
     def forward(self, obs, deterministic=False, with_logprob=True):
+        # obs = obs.view(-1, self.obs_dim)
         net_out = self.net(obs)
         mu = self.mu_layer(net_out)
         log_std = self.log_std_layer(net_out)
@@ -263,7 +265,8 @@ class Agent:
         if np.random.random() < epsilon:
             action = self.env.action_space.sample()
         else:
-            state = torch.tensor([self.state])
+            # state = torch.tensor([self.state])
+            state = torch.tensor(self.state)
 
             if device not in ["cpu"]:
                 state = state.cuda(device)
@@ -408,13 +411,14 @@ class SACLightning(pl.LightningModule):
         """
         Function computing SAC Q-losses
         """
-        o, a, r, o2, d = (
-            data["obs"],
-            data["act"],
-            data["rew"],
-            data["obs2"],
-            data["done"],
-        )
+        # o, a, r, o2, d = (
+        #     data["obs"],
+        #     data["act"],
+        #     data["rew"],
+        #     data["obs2"],
+        #     data["done"],
+        # )
+        o, a, r, d, o2 = data
 
         q1 = self.ac.q1(o, a)
         q2 = self.ac.q2(o, a)
@@ -483,8 +487,10 @@ class SACLightning(pl.LightningModule):
         #     p.requires_grad = True
         if optimizer_idx == 0:
             loss_pi, pi_info = self.compute_loss_pi(data)
+            loss = loss_pi
         if optimizer_idx == 1:
             loss_q, q_info = self.compute_loss_q(data)
+            loss = loss_q
 
         # Finally, update target networks by polyak averaging.
         with torch.no_grad():
@@ -503,8 +509,8 @@ class SACLightning(pl.LightningModule):
             "reward": torch.tensor(reward).to(device),
         }
 
-        log = {**log, **pi_info, **q_info}
-        return OrderedDict({"loss": [loss_q, loss_pi], "log": log, "progress_bar": log})
+        # log = {**log, **pi_info, **q_info}
+        return OrderedDict({"loss": loss, "log": log, "progress_bar": log})
 
     def configure_optimizers(self) -> List[Optimizer]:
         """Initialize Adam optimizer"""
