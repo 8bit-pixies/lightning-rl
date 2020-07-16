@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 import sys, gym, time
 import curses
+
 scr = curses.initscr()
-curses.noecho()  
+curses.noecho()
 
 
 #
@@ -15,33 +16,41 @@ from env_catch import CatchEnv
 
 env = CatchEnv({})
 
-if not hasattr(env.action_space, 'n'):
-    raise Exception('Keyboard agent only supports discrete action spaces')
+if not hasattr(env.action_space, "n"):
+    raise Exception("Keyboard agent only supports discrete action spaces")
 ACTIONS = env.action_space.n
-SKIP_CONTROL = 0    # Use previous control decision SKIP_CONTROL times, that's how you
-                    # can test what skip is still usable.
+SKIP_CONTROL = 0  # Use previous control decision SKIP_CONTROL times, that's how you
+# can test what skip is still usable.
 
 human_agent_action = 0
 human_wants_restart = False
 human_sets_pause = False
 
+
 def key_press(key, mod):
     global human_agent_action, human_wants_restart, human_sets_pause
-    if key==0xff0d: human_wants_restart = True
-    if key==32: human_sets_pause = not human_sets_pause
-    a = int( key - ord('0') )
-    if a <= 0 or a >= ACTIONS: return
+    if key == 0xFF0D:
+        human_wants_restart = True
+    if key == 32:
+        human_sets_pause = not human_sets_pause
+    a = int(key - ord("0"))
+    if a <= 0 or a >= ACTIONS:
+        return
     human_agent_action = a
+
 
 def key_release(key, mod):
     global human_agent_action
-    a = int( key - ord('0') )
-    if a <= 0 or a >= ACTIONS: return
+    a = int(key - ord("0"))
+    if a <= 0 or a >= ACTIONS:
+        return
     if human_agent_action == a:
         human_agent_action = 0
 
+
 env.render()
 env.reset()
+
 
 def show_screen():
     scr.clear()
@@ -49,8 +58,11 @@ def show_screen():
     for idx, el in enumerate(screen):
         scr.addstr(idx, 0, el)
     time.sleep(0.1)
+
+
 # env.unwrapped.viewer.window.on_key_press = key_press
 # env.unwrapped.viewer.window.on_key_release = key_release
+
 
 def rollout():
     global human_agent_action, human_wants_restart, human_sets_pause
@@ -63,7 +75,7 @@ def rollout():
     while env.lives > -1:
         show_screen()
 
-        key = scr.getch()        # This blocks (waits) until the time has elapsed,
+        key = scr.getch()  # This blocks (waits) until the time has elapsed,
         show_screen()
 
         if key in [ord(" "), ord("0"), ord("1"), ord("2")]:
@@ -77,6 +89,7 @@ def rollout():
             # time.sleep(0.1)
 
     show_screen()
+
 
 rollout()
 show_screen()

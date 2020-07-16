@@ -9,8 +9,9 @@ import logging
 import random
 import numpy as np
 
+
 class Block(object):
-    def __init__(self, column=None, height = None, max_width = 6, max_height = 6):
+    def __init__(self, column=None, height=None, max_width=6, max_height=6):
         self.column = random.choice(range(max_width)) if column is None else column
         self.height = max_height if height is None else height
         self.max_height = max_height
@@ -22,9 +23,9 @@ class Block(object):
 
     def hit_bottom(self):
         return self.height <= 0
-    
+
     def render(self):
-        return self.max_height-self.height, self.column
+        return self.max_height - self.height, self.column
 
 
 class CatchEnv(gym.Env):
@@ -42,9 +43,13 @@ class CatchEnv(gym.Env):
         self.board_width = 6
         self.board_height = 6
 
-        self.paddle_mapping = list(zip(range(self.board_width)[:-1], range(self.board_width)[1:]))
+        self.paddle_mapping = list(
+            zip(range(self.board_width)[:-1], range(self.board_width)[1:])
+        )
         self.action_space = Discrete(len(self.paddle_mapping))
-        self.observation_space = Box(0, 1, shape=(self.board_height+1, self.board_width))
+        self.observation_space = Box(
+            0, 1, shape=(self.board_height + 1, self.board_width)
+        )
 
     def gen_obs(self, normalize=True):
         board = np.zeros((self.board_height + 1, self.board_width))
@@ -53,7 +58,7 @@ class CatchEnv(gym.Env):
 
         board[self.board_height, self.paddle_mapping[self.paddle]] = 2
         if normalize:
-            return board/2
+            return board / 2
         else:
             return board
 
@@ -102,13 +107,14 @@ class CatchEnv(gym.Env):
 
     def render(self):
         import re
+
         paddle = "▙▟"
         chr_mapping = ["ꞏ", "O", "_"]
         board = self.gen_obs(False).astype(int)
         # import os
         # os.system("clear")
         # print("\n".join([''.join([chr_mapping[y] for y in x]) for x in board.tolist()]))
-        output = [''.join([chr_mapping[y] for y in x]) for x in board.tolist()]
+        output = ["".join([chr_mapping[y] for y in x]) for x in board.tolist()]
         output[-1] = output[-1].replace("__", paddle)
         if len(self.missed) > 0:
             for m in self.missed:
@@ -119,10 +125,7 @@ class CatchEnv(gym.Env):
         info = [
             "",
             "Score: {}".format(self.score),
-            "Lives remaining: {}".format(self.lives)
+            "Lives remaining: {}".format(self.lives),
         ]
 
         return output + info
-
-
-
