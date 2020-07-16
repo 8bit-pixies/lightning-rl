@@ -17,7 +17,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
-from torch.utils.data.dataset import IterableDataset
+from torch.utils.data.dataset import IterableDataset, Dataset
 
 import numpy as np
 import scipy.signal
@@ -34,6 +34,8 @@ import torch
 from torch.optim import Adam
 import gym
 import time
+
+from tqdm import tqdm
 
 
 def combined_shape(length, shape=None):
@@ -231,6 +233,21 @@ class RLDataset(IterableDataset):
         #     yield states[i], actions[i], rewards[i], dones[i], new_states[i]
         data = self.buffer.sample_batch(self.sample_size)
         yield data["obs"], data["act"], data["rew"], data["done"], data["obs2"]
+
+
+class MockDataset(Dataset):
+    """
+    A mock dataset which is used for testing rollouts only
+    """
+
+    def __init__(self, samples):
+        self.samples = list(range(samples))
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        return self.samples[idx]
 
 
 class Agent:
@@ -530,6 +547,34 @@ class SACLightning(pl.LightningModule):
     def train_dataloader(self) -> DataLoader:
         """Get train loader"""
         return self.__dataloader()
+
+    def test_model(self, num_trials=32):
+        """
+        performs a trajectory through the environment to get the
+        cumulative reward
+        """
+        reward_list = []
+        for _ in tqdm(range(num_trials), desc="Test Rollouts"):
+            obs = self.env.reset()
+            state = torch.tensor(obs)
+            done = False
+            total_reward = 0
+            while not done:
+                action = self.ac.act(state)
+                obs, r, done, _ = self.env.step(action)
+                total_reward += r
+                state = torch.tensor(obs)
+            reward_list.append(total_reward)
+
+        return {
+            "num_trials": len(reward_list),
+            "mean_reward": np.mean(reward_list),
+            "max_reward": np.mean(reward_list),
+            "min_reward": np.min(reward_list),
+            "p50": np.percentile(reward_list, 50),
+            "p25": np.percentile(reward_list, 25),
+            "p75": np.percentile(reward_list, 75),
+        }
 
     def get_device(self, batch) -> str:
         """Retrieve device currently being used by minibatch"""

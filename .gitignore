@@ -132,3 +132,5 @@ dmypy.json
 .vscode/
 .vscode/settings.json
 lightning_logs/
+my/
+*.pth
