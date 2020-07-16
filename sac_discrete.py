@@ -1,6 +1,8 @@
 """
 Soft Actor Critic based on https://github.com/PyTorchLightning/pytorch-lightning/blob/master/pl_examples/domain_templates/reinforce_learn_Qnet.py
 and https://github.com/openai/spinningup/blob/master/spinup/algos/pytorch/sac/sac.py
+
+This is a discrete version of SAC based on https://arxiv.org/abs/1910.07207 and https://www.reddit.com/r/reinforcementlearning/comments/bmm1dj/soft_actorcritic_with_discrete_actions/
 """
 
 import pytorch_lightning as pl
@@ -60,23 +62,29 @@ LOG_STD_MAX = 2
 LOG_STD_MIN = -20
 
 
-class SquashedGaussianMLPActor(nn.Module):
-    def __init__(self, obs_dim, act_dim, hidden_sizes, activation, act_limit):
-        super(SquashedGaussianMLPActor, self).__init__()
+class DiscreteMLPActor(nn.Module):
+    """
+    This creates discrete actions which does not need to sample to estimate KL 
+    divergence
+    """
+
+    def __init__(self, obs_dim, act_dim, hidden_sizes, activation):
+        super(DiscreteMLPActor, self).__init__()
         self.obs_dim = obs_dim
         self.net = mlp([obs_dim] + list(hidden_sizes), activation, activation)
         self.mu_layer = nn.Linear(hidden_sizes[-1], act_dim)
-        self.log_std_layer = nn.Linear(hidden_sizes[-1], act_dim)
-        self.act_limit = act_limit
+        # self.log_std_layer = nn.Linear(hidden_sizes[-1], act_dim)
+        # self.act_limit = act_limit
 
     def forward(self, obs, deterministic=False, with_logprob=True):
         # obs = obs.view(-1, self.obs_dim)
         net_out = self.net(obs)
         mu = self.mu_layer(net_out)
-        log_std = self.log_std_layer(net_out)
-        log_std = torch.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
-        std = torch.exp(log_std)
+        # log_std = self.log_std_layer(net_out)
+        # log_std = torch.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
+        # std = torch.exp(log_std)
 
+        """
         # Pre-squash distribution and sample
         pi_distribution = Normal(mu, std)
         if deterministic:
@@ -97,9 +105,13 @@ class SquashedGaussianMLPActor(nn.Module):
             )
         else:
             logp_pi = None
+        """
+        pi_action = F.softmax(mu, dim=-1)  # apply sigmoid function
+        z = (pi_action == 0.0).float() * 1e-8
+        logp_pi = torch.log(pi_action + z)  # calculate this directly
 
-        pi_action = torch.tanh(pi_action)
-        pi_action = self.act_limit * pi_action
+        # pi_action = torch.tanh(pi_action)
+        # pi_action = self.act_limit * pi_action
 
         return pi_action, logp_pi
 
@@ -125,13 +137,10 @@ class MLPActorCritic(nn.Module):
     ):
         super().__init__()
         obs_dim = observation_space.shape[0]
-        act_dim = action_space.shape[0]
-        act_limit = action_space.high[0]
+        act_dim = action_space.n
 
         # build policy and value functions
-        self.pi = SquashedGaussianMLPActor(
-            obs_dim, act_dim, hidden_sizes, activation, act_limit
-        )
+        self.pi = DiscreteMLPActor(obs_dim, act_dim, hidden_sizes, activation)
         self.q1 = MLPQFunction(obs_dim, act_dim, hidden_sizes, activation)
         self.q2 = MLPQFunction(obs_dim, act_dim, hidden_sizes, activation)
 
@@ -193,7 +202,7 @@ class ReplayBuffer:
     def store(self, obs, act, rew, next_obs, done):
         self.obs_buf[self.ptr] = obs.flatten()
         self.obs2_buf[self.ptr] = next_obs.flatten()
-        self.act_buf[self.ptr] = act.flatten()
+        self.act_buf[self.ptr] = act  # some kind of assertion
         self.rew_buf[self.ptr] = rew
         self.done_buf[self.ptr] = done
         self.ptr = (self.ptr + 1) % self.max_size
@@ -277,6 +286,7 @@ class Agent:
             # _, action = torch.max(q_values, dim=1)
             # action = int(action.item())
             action = net.act(state)
+            action = np.argmax(action, 0)
 
         return action
 
@@ -295,6 +305,7 @@ class Agent:
         """
 
         action = self.get_action(net, epsilon, device)
+        # print("action", action)
 
         # do step in the environment
         new_state, reward, done, _ = self.env.step(action)
@@ -364,10 +375,10 @@ class SACLightning(pl.LightningModule):
 
         # initialize some other stuff here
         self.obs_dim = self.env.observation_space.shape
-        self.act_dim = self.env.action_space.shape[0]
+        self.act_dim = self.env.action_space.n
 
         # Action limit for clamping: critically, assumes all dimensions share the same bound!
-        self.act_limit = self.env.action_space.high[0]
+        # self.act_limit = self.env.action_space.high[0]
         self.ac = actor_critic(
             self.env.observation_space, self.env.action_space, **ac_kwargs
         )
@@ -434,6 +445,8 @@ class SACLightning(pl.LightningModule):
             q1_pi_targ = self.ac_targ.q1(o2, a2)
             q2_pi_targ = self.ac_targ.q2(o2, a2)
             q_pi_targ = torch.min(q1_pi_targ, q2_pi_targ)
+
+            logp_a2 = torch.sum(logp_a2 * a2, dim=2, keepdim=True)
             backup = r + self.gamma * (1 - d) * (q_pi_targ - self.alpha * logp_a2)
 
         # MSE loss against Bellman backup
@@ -456,6 +469,7 @@ class SACLightning(pl.LightningModule):
         q2_pi = self.ac.q2(o, pi)
         q_pi = torch.min(q1_pi, q2_pi)
 
+        logp_pi = torch.sum(logp_pi * pi, dim=2, keepdim=True)
         # Entropy-regularized policy loss
         loss_pi = (self.alpha * logp_pi - q_pi).mean()
 
@@ -546,6 +560,7 @@ class SACLightning(pl.LightningModule):
             total_reward = 0
             while not done:
                 action = self.ac.act(state)
+                action = np.argmax(action, 0)
                 obs, r, done, _ = self.env.step(action)
                 total_reward += r
                 state = torch.tensor(obs)
