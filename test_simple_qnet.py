@@ -7,7 +7,7 @@ from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint
 
 
-from sac_discrete import SACLightning, MLPActorCritic
+from simple_qnet import QNetLightning
 import gym
 import pandas as pd
 
@@ -16,13 +16,10 @@ from env_catch import CatchEnv
 
 env = CatchEnv({"simplify": True})
 
-model = SACLightning(env, MLPActorCritic)
 
-checkpoint_callback = ModelCheckpoint(
-    filepath="my/path/sample-cartpole{epoch:02d}", save_last=True, period=10
-)
+model = QNetLightning(env)
 
-trainer = Trainer(max_epochs=1000, checkpoint_callback=checkpoint_callback)
+trainer = Trainer(max_epochs=1000)
 trainer.fit(model)
 
 print(model.test_model())

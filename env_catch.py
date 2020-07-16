@@ -47,17 +47,46 @@ class CatchEnv(gym.Env):
             zip(range(self.board_width)[:-1], range(self.board_width)[1:])
         )
         self.action_space = Discrete(len(self.paddle_mapping))
-        self.observation_space = Box(
-            0, 1, shape=(self.board_height + 1, self.board_width)
-        )
 
-    def gen_obs(self, normalize=True):
+        if env_config.get("simplify") is None:
+            self.observation_space = Box(
+                0, 1, shape=(self.board_height + 1, self.board_width)
+            )
+            self.simplify_obs = False
+        else:
+            self.max_blocks = 3
+            paddle_loc = len(self.paddle_mapping)
+            block_loc = 2 * self.max_blocks  # two locations and 3 blocks in buffer
+            state_space = paddle_loc + block_loc
+            self.observation_space = Box(0, 1, shape=(state_space,))
+            self.simplify_obs = True
+
+    def gen_obs_raw(self):
         board = np.zeros((self.board_height + 1, self.board_width))
         for b in self.blocks:
             board[b.render()] = 1
 
         board[self.board_height, self.paddle_mapping[self.paddle]] = 2
-        if normalize:
+        return board
+
+    def gen_obs(self, normalize=True):
+        board = self.gen_obs_raw()
+
+        if normalize and self.simplify_obs:
+            padd_loc = [0 for _ in range(len(self.paddle_mapping))]
+            padd_loc[self.paddle] = 1
+            block_loc = [0 for _ in range(self.max_blocks * 2)]
+            for loc, idx in zip(
+                np.argwhere(board == 1).tolist()[::-1], range(self.max_blocks)
+            ):
+                block_loc[idx] = loc[0]
+                block_loc[idx + 1] = loc[1]
+
+            obs = np.array(padd_loc + block_loc)
+            obs = obs / max(self.board_width, self.board_height)
+            return np.clip(obs, 0, 1)
+
+        elif normalize:
             return board / 2
         else:
             return board
@@ -70,6 +99,7 @@ class CatchEnv(gym.Env):
         self.score = 0
         self.lives = 3
         self.blocks.append(Block(None, None, self.board_width, self.board_height))
+        return self.gen_obs()
 
     def step(self, action):
         if action == 1:
@@ -85,7 +115,7 @@ class CatchEnv(gym.Env):
         bottomed = [b.render()[1] for b in blocks if b.hit_bottom()]
         caught = [b for b in bottomed if b in self.paddle_mapping[self.paddle]]
         self.missed = [b for b in bottomed if b not in self.paddle_mapping[self.paddle]]
-        reward = len(caught) - len(bottomed)
+        reward = 1 if len(caught) > len(self.missed) else 0
 
         self.score += len(caught)
         self.lives -= len(self.missed)
@@ -96,7 +126,7 @@ class CatchEnv(gym.Env):
             done = True
 
         self.blocks = [b for b in self.blocks if not b.hit_bottom()]
-        temp_obs = self.gen_obs()
+        temp_obs = self.gen_obs_raw()
         if np.sum(temp_obs[:3, :]) == 0:
             self.blocks.append(Block(None, None, self.board_width, self.board_height))
 
