@@ -370,7 +370,6 @@ class DQNLightning(pl.LightningModule):
                 action = int(action.item())
                 # action = self.ac.act(state)
                 # action = np.argmax(action, 0)
-                action = 0
                 obs, r, done, _ = self.env.step(action)
                 total_reward += r
                 state = torch.tensor(obs)

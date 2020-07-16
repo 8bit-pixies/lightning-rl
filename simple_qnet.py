@@ -1,5 +1,5 @@
 """
-This is a simple version of DQN for pedagorical purposes ("QNet")
+This is a simple version of DQN for pedagogical purposes ("QNet")
 There is no replay buffer, just pure neural networks learnt online
 """
 
@@ -67,7 +67,7 @@ class Experience:
 
 class Agent:
     """
-    Base Agent class handeling the interaction with the environment
+    Base Agent class handling the interaction with the environment
     Args:
         env: training environment
         replay_buffer: replay buffer storing experiences
@@ -190,6 +190,7 @@ class QNetLightning(pl.LightningModule):
         log = {
             "total_reward": torch.tensor(self.total_reward).to(device),
             "reward": torch.tensor(reward).to(device),
+            "steps": torch.tensor(self.global_step).to(device),
         }
 
         return OrderedDict({"loss": loss, "log": log, "progress_bar": log})
@@ -222,7 +223,6 @@ class QNetLightning(pl.LightningModule):
                 action = int(action.item())
                 # action = self.ac.act(state)
                 # action = np.argmax(action, 0)
-                action = 0
                 obs, r, done, _ = self.env.step(action)
                 total_reward += r
                 state = torch.tensor(obs)
