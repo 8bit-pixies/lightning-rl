@@ -41,12 +41,93 @@ class QNet(nn.Module):
         )
 
     def forward(self, x):
-        return self.net(x)
+        return self.net(x.float())
+
+
+class Experience:
+    """
+    Just a mock object to hold experience
+    """
+
+    def __init__(self):
+        self.experience = {}
+
+    def update(self, experience):
+        self.experience = experience
+
+    def sample(self):
+        return (
+            self.experience["state"],
+            self.experience["action"],
+            self.experience["reward"],
+            self.experience["done"],
+            self.experience["next_state"],
+        )
+
+
+class Agent:
+    """
+    Base Agent class handling the interaction with the environment
+    Args:
+        env: training environment
+        replay_buffer: replay buffer storing experiences
+    """
+
+    def __init__(self, env: gym.Env, experience) -> None:
+        self.env = env
+        self.reset()
+        self.state = self.env.reset()
+        self.experience = experience
+
+    def reset(self) -> None:
+        self.state = self.env.reset()
+
+    def get_action(self, net: nn.Module) -> int:
+        state = torch.tensor(self.state)
+
+        q_values = net(state)
+        _, action = torch.max(
+            q_values, dim=-1
+        )  # note that its not "softmax", because Q is the expected reward of state-action combination
+        action = int(action.item())
+        return action
+
+    @torch.no_grad()
+    def play_step(self, net: nn.Module) -> Tuple[float, bool]:
+        """
+        Carries out a single interaction step between the agent and the environment
+        Args:
+            net: DQN network
+            epsilon: value to determine likelihood of taking a random action
+            device: current device
+        Returns:
+            reward, done
+        """
+        action = self.get_action(net)
+        # do step in the environment
+        new_state, reward, done, _ = self.env.step(action)
+        self.experience.update(
+            {
+                "state": self.state,
+                "action": action,
+                "reward": reward,
+                "done": done,
+                "next_state": new_state,
+            }
+        )
+
+        self.state = new_state
+        if done:
+            self.reset()
+        return reward, done
 
 
 class MockDataset(IterableDataset):
+    def __init__(self, experience):
+        self.experience = experience
+
     def __iter__(self):
-        yield True
+        yield self.experience.sample()
 
 
 class QNetLightning(pl.LightningModule):
@@ -62,38 +143,33 @@ class QNetLightning(pl.LightningModule):
         n_actions = self.env.action_space.n
 
         self.net = QNet(obs_size, n_actions)
+        self.experience = Experience()
+        self.agent = Agent(self.env, self.experience)
+
         self.total_reward = 0
         self.episode_reward = 0
 
-        self.state = None
-        self.done = False
+        self.init_experience()
+        self.env.reset()
+
+    def init_experience(self):
+        """
+        There needs to be "something", like warmstart
+        """
+        self.agent.play_step(self.net)
 
     def forward(self, x):
         output = self.net(x)
         return output
 
-    def get_action(self, state, train=True):
-        """selects action based on qvalue"""
-        state = torch.tensor(state, dtype=torch.float32)
-
-        q_values = self.net(state)
-        if train:
-            q_values = action = torch.nn.functional.gumbel_softmax(q_values, hard=True)
-        _, action = torch.max(
-            q_values, dim=-1
-        )  # note that its not "softmax", because Q is the expected reward of state-action combination
-        action = int(action.item())
-        return action
-
-    def qnet_mse_loss(self, states, actions, rewards, next_states):
+    def qnet_mse_loss(self, batch):
         # original paper uses some kind of buffer of prior actions
-        states = torch.tensor(states, dtype=torch.float32)
-        actions = torch.tensor(actions, dtype=torch.long)
-        next_states = torch.tensor(next_states, dtype=torch.float32)
-        next_state_value = self.net(states).gather(-1, actions)
+        states, actions, rewards, _, next_states = batch
+
+        next_state_value = self.net(states).gather(1, actions.unsqueeze(-1)).squeeze(-1)
 
         with torch.no_grad():
-            est_fut_state_value = self.net(next_states).max().detach()
+            est_fut_state_value = self.net(next_states).max(1)[0].detach()
 
         expected_state_action_values = est_fut_state_value * self.gamma + rewards
         expected_state_action_values = torch.tensor(
@@ -105,22 +181,19 @@ class QNetLightning(pl.LightningModule):
         """
         Performs a single step in the environment.
         """
-        if self.state is None or self.done:
-            self.state = self.env.reset()
-
-        action = self.get_action(self.state)
-        next_state, reward, self.done, _ = self.env.step(action)
+        device = self.get_device(batch)
+        reward, done = self.agent.play_step(self.net)
         self.episode_reward += reward
-        loss = self.qnet_mse_loss(self.state, action, reward, next_state)
+        loss = self.qnet_mse_loss(batch)
 
-        if self.done:
+        if done:
             self.total_reward = self.episode_reward
             self.episode_reward = 0
 
         log = {
-            "total_reward": torch.tensor(self.total_reward),
-            "reward": torch.tensor(reward),
-            "steps": torch.tensor(self.global_step),
+            "total_reward": torch.tensor(self.total_reward).to(device),
+            "reward": torch.tensor(reward).to(device),
+            "steps": torch.tensor(self.global_step).to(device),
         }
 
         return OrderedDict({"loss": loss, "log": log, "progress_bar": log})
@@ -130,7 +203,7 @@ class QNetLightning(pl.LightningModule):
         return [optimizer]
 
     def train_dataloader(self):
-        dataset = MockDataset()
+        dataset = MockDataset(self.experience)
         dataloader = DataLoader(dataset=dataset, batch_size=1, sampler=None,)
         return dataloader
 
@@ -146,10 +219,16 @@ class QNetLightning(pl.LightningModule):
             done = False
             total_reward = 0
             while not done:
-                action = self.get_action(state, False)
+                q_values = self.net(state)
+                _, action = torch.max(
+                    q_values, dim=-1
+                )  # note that its not "softmax", because Q is the expected reward of state-action combination
+                action = int(action.item())
+                # action = self.ac.act(state)
+                # action = np.argmax(action, 0)
                 obs, r, done, _ = self.env.step(action)
                 total_reward += r
-                state = torch.as_tensor(obs, dtype=torch.float32)
+                state = torch.tensor(obs)
             reward_list.append(total_reward)
 
         return {

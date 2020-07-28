@@ -13,18 +13,30 @@ from torch.utils.data.dataset import IterableDataset
 from tqdm import tqdm
 
 
+class QNet(nn.Module):
+    """
+    Simple MLP network
+    Args:
+        obs_size: observation/state size of the environment
+        n_actions: number of discrete actions available in the environment
+        hidden_size: size of hidden layers
+    """
+
+    def __init__(self, obs_size: int, n_actions: int, hidden_size: int = 32):
+        super(QNet, self).__init__()
+        self.net = nn.Sequential(
+            nn.Linear(obs_size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, n_actions),
+        )
+
+    def forward(self, x):
+        return self.net(x.float())
+
+
 class MockDataset(IterableDataset):
     def __iter__(self):
         yield True
-
-
-def mlp(sizes, activation=nn.Tanh, output_activation=nn.Identity):
-    # Build a feedforward neural network.
-    layers = []
-    for j in range(len(sizes) - 1):
-        act = activation if j < len(sizes) - 2 else output_activation
-        layers += [nn.Linear(sizes[j], sizes[j + 1]), act()]
-    return nn.Sequential(*layers)
 
 
 class SimplePolicyGradient(pl.LightningModule):
@@ -38,7 +50,7 @@ class SimplePolicyGradient(pl.LightningModule):
         obs_size = self.env.observation_space.shape[0]
         n_actions = self.env.action_space.n
 
-        self.logits_net = mlp(sizes=[obs_size] + hidden_sizes + [n_actions])
+        self.logits_net = QNet(obs_size, n_actions)
 
         self.total_reward = 0
         self.episode_reward = 0
