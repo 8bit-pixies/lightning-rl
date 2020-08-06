@@ -264,6 +264,9 @@ class Agent:
         Returns:
             action
         """
+
+        # technically in SAC there is no epsilon - need to change this to be more similar to spinning up implementation
+        # it is filled up only till the replay buffer is full
         if np.random.random() < epsilon:
             action = self.env.action_space.sample()
         else:
@@ -434,6 +437,7 @@ class SACLightning(pl.LightningModule):
             q1_pi_targ = self.ac_targ.q1(o2, a2)
             q2_pi_targ = self.ac_targ.q2(o2, a2)
             q_pi_targ = torch.min(q1_pi_targ, q2_pi_targ)
+            # line 12: https://spinningup.openai.com/en/latest/algorithms/sac.html
             backup = r + self.gamma * (1 - d) * (q_pi_targ - self.alpha * logp_a2)
 
         # MSE loss against Bellman backup
@@ -457,6 +461,9 @@ class SACLightning(pl.LightningModule):
         q_pi = torch.min(q1_pi, q2_pi)
 
         # Entropy-regularized policy loss
+        # note that `V = q_pi + alpha * entropy = q_pi - alpha * log_pi`
+        # this is optimized via gradient ascent; i.e. minimize `alpha * log_pi - q_pi`
+        # line 14: https://spinningup.openai.com/en/latest/algorithms/sac.html
         loss_pi = (self.alpha * logp_pi - q_pi).mean()
 
         # Useful info for logging
