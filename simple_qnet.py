@@ -113,6 +113,8 @@ class QNetLightning(pl.LightningModule):
         self.episode_reward += reward
         loss = self.qnet_mse_loss(self.state, action, reward, next_state)
 
+        self.state = next_state
+
         if self.done:
             self.total_reward = self.episode_reward
             self.episode_reward = 0

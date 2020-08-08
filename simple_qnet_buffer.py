@@ -176,6 +176,7 @@ class QNetLightning(pl.LightningModule):
             expected_state_action_values, dtype=torch.float32
         )
         return nn.MSELoss()(next_state_value, expected_state_action_values)
+        # return ((next_state_value - expected_state_action_values)**2).mean()
 
     def training_step(self, batch, batch_idx):
         """
