@@ -13,7 +13,7 @@ from torch.utils.data.dataset import IterableDataset
 from tqdm import tqdm
 
 
-class QNet(nn.Module):
+class MLP(nn.Module):
     """
     Simple MLP network
     Args:
@@ -23,7 +23,7 @@ class QNet(nn.Module):
     """
 
     def __init__(self, obs_size: int, n_actions: int, hidden_size: int = 32):
-        super(QNet, self).__init__()
+        super(MLP, self).__init__()
         self.net = nn.Sequential(
             nn.Linear(obs_size, hidden_size),
             nn.ReLU(),
@@ -50,7 +50,7 @@ class SimplePolicyGradient(pl.LightningModule):
         obs_size = self.env.observation_space.shape[0]
         n_actions = self.env.action_space.n
 
-        self.logits_net = QNet(obs_size, n_actions)
+        self.logits_net = MLP(obs_size, n_actions)
 
         self.total_reward = 0
         self.episode_reward = 0
