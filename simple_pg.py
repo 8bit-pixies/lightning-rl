@@ -69,9 +69,9 @@ class SimplePolicyGradient(pl.LightningModule):
         """help to realise an action selection"""
         return self.get_policy(obs).sample().item()
 
-    def compute_loss(self, obs, act, weights):
+    def compute_loss(self, obs, act, reward):
         logp = self.get_policy(obs).log_prob(act)
-        return -(logp * weights).mean()
+        return -(logp * reward).mean()
 
     def configure_optimizers(self):
         optimizer = optim.Adam(self.logits_net.parameters(), lr=self.lr)
