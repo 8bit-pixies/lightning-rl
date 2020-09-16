@@ -12,17 +12,17 @@ import gym
 import pandas as pd
 
 env = gym.make("CartPole-v0")
-from env_catch import CatchEnv
+# from env_catch import CatchEnv
 
-env = CatchEnv({"simplify": True})
+# env = CatchEnv({"simplify": True})
 
 model = SACLightning(env, MLPActorCritic)
 
-checkpoint_callback = ModelCheckpoint(
-    filepath="my/path/sample-cartpole{epoch:02d}", save_last=True, period=10
-)
+# checkpoint_callback = ModelCheckpoint(
+#     filepath="my/path/sample-cartpole{epoch:02d}", save_last=True, period=10
+# )
 
-trainer = Trainer(max_epochs=1000, checkpoint_callback=checkpoint_callback)
+trainer = Trainer(max_epochs=1000)
 trainer.fit(model)
 
 print(model.test_model())

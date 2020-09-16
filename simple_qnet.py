@@ -78,6 +78,7 @@ class QNetLightning(pl.LightningModule):
 
         q_values = self.net(state)
         if train:
+            # this is to sample an action probabilitistically
             q_values = action = torch.nn.functional.gumbel_softmax(q_values, hard=True)
         _, action = torch.max(
             q_values, dim=-1

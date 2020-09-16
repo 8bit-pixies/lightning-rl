@@ -18,7 +18,7 @@ env = gym.make("CartPole-v0")
 
 model = QNetLightning(env)
 
-trainer = Trainer(max_epochs=1000)
+trainer = Trainer(max_epochs=13000)
 trainer.fit(model)
 
 print(model.test_model())

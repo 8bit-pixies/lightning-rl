@@ -11,10 +11,10 @@ from simple_qnet import QNetLightning
 import gym
 import pandas as pd
 
-# env = gym.make("CartPole-v0")
-from env_catch import CatchEnv
+env = gym.make("CartPole-v0")
+# from env_catch import CatchEnv
 
-env = CatchEnv({"simplify": True})
+# env = CatchEnv({"simplify": True})
 
 
 model = QNetLightning(env)
